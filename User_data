@@ -1,0 +1,80 @@
+#!/bin/bash
+# =============================================================================
+# EC2 User Data Script — Flask + Apache + mod_wsgi on Amazon Linux 2023
+# Runs once as root on first boot.
+# =============================================================================
+
+set -euo pipefail
+exec > >(tee /var/log/user-data.log | logger -t user-data) 2>&1
+echo "--- User data script started: $(date) ---"
+
+# -----------------------------------------------------------------------------
+# 1. System update & package install
+# -----------------------------------------------------------------------------
+dnf update -y
+dnf install -y \
+    httpd \
+    python3 \
+    python3-pip \
+    python3-devel \
+    gcc \
+    mod_wsgi \
+    git
+
+# -----------------------------------------------------------------------------
+# 2. Start & enable Apache
+# -----------------------------------------------------------------------------
+systemctl enable httpd
+systemctl start httpd
+
+# -----------------------------------------------------------------------------
+# 3. Clone your GitHub repo
+# -----------------------------------------------------------------------------
+# EDIT THIS LINE — replace with your actual repo URL
+REPO_URL="https://github.com/s-mcinma/flask-webapp/"
+APP_DIR="/var/www/webapp"
+
+git clone "$REPO_URL" "$APP_DIR"
+
+# -----------------------------------------------------------------------------
+# 4. Install Python dependencies
+# -----------------------------------------------------------------------------
+pip3 install -r "$APP_DIR/requirements.txt"
+
+# -----------------------------------------------------------------------------
+# 5. Write the .env file with your RDS credentials
+#    EDIT the values below before pasting into the User Data field
+# -----------------------------------------------------------------------------
+cat > "$APP_DIR/.env" <<EOF
+DB_HOST=flowershop-db.clm7rfyxrrcy.us-east-1.rds.amazonaws.com
+DB_USER=admin
+DB_PASSWORD=password
+DB_NAME=flowershop
+SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+FLASK_DEBUG=false
+EOF
+
+# Lock down the .env file so only apache can read it
+chmod 640 "$APP_DIR/.env"
+
+# -----------------------------------------------------------------------------
+# 6. Set correct ownership & permissions
+# -----------------------------------------------------------------------------
+chown -R apache:apache "$APP_DIR"
+find "$APP_DIR" -type d -exec chmod 755 {} \;
+find "$APP_DIR" -type f -exec chmod 644 {} \;
+
+# -----------------------------------------------------------------------------
+# 7. Install the Apache virtual host config
+# -----------------------------------------------------------------------------
+cp "$APP_DIR/webapp.conf" /etc/httpd/conf.d/webapp.conf
+
+# Remove the default Apache welcome page so our app serves at /
+rm -f /etc/httpd/conf.d/welcome.conf
+
+# -----------------------------------------------------------------------------
+# 8. Restart Apache to pick up the new config
+# -----------------------------------------------------------------------------
+systemctl restart httpd
+
+echo "--- User data script finished: $(date) ---"
