@@ -2,49 +2,76 @@
 # =============================================================================
 # EC2 User Data Script — Flask + Apache + mod_wsgi on Amazon Linux 2023
 # Runs once as root on first boot.
+#
+# BEFORE USING: edit the three sections marked EDIT
 # =============================================================================
 
-set -euo pipefail
+# Log everything to /var/log/user-data.log (check here if something goes wrong)
 exec > >(tee /var/log/user-data.log | logger -t user-data) 2>&1
 echo "--- User data script started: $(date) ---"
 
+# Don't use set -e here — we want the log to capture all errors, not abort silently
+set -uo pipefail
+
 # -----------------------------------------------------------------------------
 # 1. System update & package install
+#    NOTE: mod_wsgi is NOT in Amazon Linux 2023 DNF repos — installed via pip below
 # -----------------------------------------------------------------------------
+echo "[1/8] Updating system packages..."
 dnf update -y
+
+echo "[2/8] Installing Apache, Python, Git..."
 dnf install -y \
     httpd \
     python3 \
     python3-pip \
     python3-devel \
     gcc \
-    mod_wsgi \
     git
 
 # -----------------------------------------------------------------------------
-# 2. Start & enable Apache
+# 2. Install mod_wsgi via pip (required for Amazon Linux 2023)
 # -----------------------------------------------------------------------------
+echo "[3/8] Installing mod_wsgi via pip..."
+pip3 install mod_wsgi
+
+# Write the mod_wsgi module config so Apache loads it
+mod_wsgi-express install-module > /etc/httpd/conf.modules.d/10-wsgi.conf
+echo "mod_wsgi installed: $(mod_wsgi-express module-location)"
+
+# -----------------------------------------------------------------------------
+# 3. Start & enable Apache
+# -----------------------------------------------------------------------------
+echo "[4/8] Starting Apache..."
 systemctl enable httpd
 systemctl start httpd
 
 # -----------------------------------------------------------------------------
-# 3. Clone your GitHub repo
+# 4. Clone your GitHub repo
+#    EDIT: replace with your actual GitHub repo URL
 # -----------------------------------------------------------------------------
-# EDIT THIS LINE — replace with your actual repo URL
-REPO_URL="https://github.com/s-mcinma/flask-webapp/"
+echo "[5/8] Cloning application repo..."
+REPO_URL="https://github.com/s-mcinma/flask-webapp.git"   # <-- EDIT THIS
 APP_DIR="/var/www/webapp"
 
 git clone "$REPO_URL" "$APP_DIR"
 
+if [ ! -d "$APP_DIR" ]; then
+    echo "ERROR: git clone failed — check REPO_URL and that the repo is public."
+    exit 1
+fi
+
 # -----------------------------------------------------------------------------
-# 4. Install Python dependencies
+# 5. Install Python dependencies
 # -----------------------------------------------------------------------------
+echo "[6/8] Installing Python dependencies..."
 pip3 install -r "$APP_DIR/requirements.txt"
 
 # -----------------------------------------------------------------------------
-# 5. Write the .env file with your RDS credentials
-#    EDIT the values below before pasting into the User Data field
+# 6. Write the .env file
+#    EDIT: fill in your RDS endpoint, credentials, and DB name
 # -----------------------------------------------------------------------------
+echo "[7/8] Writing .env file..."
 cat > "$APP_DIR/.env" <<EOF
 DB_HOST=flowershop-db.clm7rfyxrrcy.us-east-1.rds.amazonaws.com
 DB_USER=admin
@@ -54,27 +81,31 @@ SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 FLASK_DEBUG=false
 EOF
 
-# Lock down the .env file so only apache can read it
 chmod 640 "$APP_DIR/.env"
 
 # -----------------------------------------------------------------------------
-# 6. Set correct ownership & permissions
+# 7. Set correct ownership & permissions
 # -----------------------------------------------------------------------------
 chown -R apache:apache "$APP_DIR"
 find "$APP_DIR" -type d -exec chmod 755 {} \;
 find "$APP_DIR" -type f -exec chmod 644 {} \;
 
 # -----------------------------------------------------------------------------
-# 7. Install the Apache virtual host config
+# 8. Install Apache virtual host config & restart
 # -----------------------------------------------------------------------------
+echo "[8/8] Installing Apache config and restarting..."
 cp "$APP_DIR/webapp.conf" /etc/httpd/conf.d/webapp.conf
 
-# Remove the default Apache welcome page so our app serves at /
+# Remove default Apache welcome page so our app serves at /
 rm -f /etc/httpd/conf.d/welcome.conf
 
-# -----------------------------------------------------------------------------
-# 8. Restart Apache to pick up the new config
-# -----------------------------------------------------------------------------
 systemctl restart httpd
 
+# -----------------------------------------------------------------------------
+# Final status check
+# -----------------------------------------------------------------------------
+echo "--- Checking Apache status ---"
+systemctl status httpd --no-pager
+
 echo "--- User data script finished: $(date) ---"
+echo "Check /var/log/user-data.log if the app is not reachable."
