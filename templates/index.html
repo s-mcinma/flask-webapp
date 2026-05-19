@@ -3,92 +3,91 @@
 {% block content %}
 <div class="row">
     <div class="col-md-6">
-        <!-- Email Submission Form -->
+
+        <!-- Add Email -->
         <div class="form-section">
-            <h3>Add Email Address</h3>
+            <h4 class="mb-3">&#43; Add Email Address</h4>
             <form method="POST" action="{{ url_for('submit_email') }}">
                 <div class="mb-3">
                     <label for="email" class="form-label">Email Address</label>
-                    <input type="email" class="form-control" id="email" name="email" required>
-                    <div class="form-text">Enter an email address to add to the database.</div>
+                    <input type="email" class="form-control" id="email" name="email"
+                           placeholder="user@example.com" required>
+                    <div class="form-text">The address will be stored with status <em>active</em>.</div>
                 </div>
                 <button type="submit" class="btn btn-primary">Add Email</button>
             </form>
         </div>
 
-        <!-- Email Check Form -->
+        <!-- Check Email -->
         <div class="form-section">
-            <h3>Check Email Address</h3>
+            <h4 class="mb-3">&#128269; Check Email Address</h4>
             <form method="POST" action="{{ url_for('check_email') }}">
                 <div class="mb-3">
                     <label for="check_email" class="form-label">Email Address</label>
-                    <input type="email" class="form-control" id="check_email" name="check_email" required>
-                    <div class="form-text">Check if an email address exists in the database.</div>
+                    <input type="email" class="form-control" id="check_email" name="check_email"
+                           placeholder="user@example.com" required>
+                    <div class="form-text">Check whether this address is already in the database.</div>
                 </div>
-                <button type="submit" class="btn btn-info">Check Email</button>
+                <button type="submit" class="btn btn-info text-white">Check Email</button>
             </form>
         </div>
+
     </div>
 
     <div class="col-md-6">
-        <!-- Address Submission Form -->
+
+        <!-- Add Address -->
         <div class="form-section">
-            <h3>Add Address</h3>
+            <h4 class="mb-3">&#127968; Add Physical Address</h4>
             <form method="POST" action="{{ url_for('submit_address') }}">
                 <div class="mb-3">
                     <label for="address_email" class="form-label">Email Address</label>
-                    <input type="email" class="form-control" id="address_email" name="address_email" required>
-                    <div class="form-text">Email address this address belongs to.</div>
+                    <input type="email" class="form-control" id="address_email" name="address_email"
+                           placeholder="must already exist in DB" required>
                 </div>
                 <div class="mb-3">
                     <label for="street_address" class="form-label">Street Address</label>
                     <input type="text" class="form-control" id="street_address" name="street_address" required>
                 </div>
                 <div class="row">
-                    <div class="col-md-6">
-                        <div class="mb-3">
-                            <label for="city" class="form-label">City</label>
-                            <input type="text" class="form-control" id="city" name="city" required>
-                        </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="city" class="form-label">City</label>
+                        <input type="text" class="form-control" id="city" name="city" required>
                     </div>
-                    <div class="col-md-6">
-                        <div class="mb-3">
-                            <label for="state" class="form-label">State</label>
-                            <input type="text" class="form-control" id="state" name="state" required>
-                        </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="state" class="form-label">State</label>
+                        <input type="text" class="form-control" id="state" name="state" required>
                     </div>
                 </div>
                 <div class="row">
-                    <div class="col-md-6">
-                        <div class="mb-3">
-                            <label for="zip_code" class="form-label">ZIP Code</label>
-                            <input type="text" class="form-control" id="zip_code" name="zip_code" required>
-                        </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="zip_code" class="form-label">ZIP Code</label>
+                        <input type="text" class="form-control" id="zip_code" name="zip_code" required>
                     </div>
-                    <div class="col-md-6">
-                        <div class="mb-3">
-                            <label for="country" class="form-label">Country</label>
-                            <input type="text" class="form-control" id="country" name="country" value="USA">
-                        </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="country" class="form-label">Country</label>
+                        <input type="text" class="form-control" id="country" name="country" value="USA">
                     </div>
                 </div>
                 <button type="submit" class="btn btn-success">Add Address</button>
             </form>
         </div>
+
     </div>
 </div>
 
-<div class="row mt-4">
+<!-- API info card -->
+<div class="row mt-2">
     <div class="col-12">
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title">API Endpoints</h5>
-                <p class="card-text">You can also access data programmatically:</p>
-                <ul>
-                    <li><strong>GET /api/emails</strong> - Retrieve all emails with address counts</li>
-                    <li><strong>GET /health</strong> - Health check endpoint</li>
+                <h5 class="card-title">Programmatic Access</h5>
+                <ul class="mb-2">
+                    <li><code>GET /api/emails</code> — all emails with address counts (JSON)</li>
+                    <li><code>GET /health</code> — health-check / DB connectivity</li>
                 </ul>
-                <a href="/api/emails" class="btn btn-outline-primary" target="_blank">View JSON Data</a>
+                <a href="/api/emails" class="btn btn-outline-primary btn-sm" target="_blank">View JSON</a>
+                <a href="{{ url_for('view_data') }}" class="btn btn-outline-secondary btn-sm">View Table</a>
             </div>
         </div>
     </div>

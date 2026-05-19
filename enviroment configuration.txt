@@ -1,5 +1,0 @@
-export DB_HOST="your-rds-endpoint.region.rds.amazonaws.com"
-export DB_USER="admin"
-export DB_PASSWORD="your-password"
-export DB_NAME="webapp_db"
-export SECRET_KEY="your-secret-key"
