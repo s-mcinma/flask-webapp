@@ -2,25 +2,23 @@
 # =============================================================================
 # EC2 User Data Script — Flask + Apache + mod_wsgi on Amazon Linux 2023
 # Runs once as root on first boot.
-#
-# BEFORE USING: edit the two sections marked  <-- EDIT
 # =============================================================================
- 
+
 # Log everything to /var/log/user-data.log
 exec > >(tee /var/log/user-data.log | logger -t user-data) 2>&1
 echo "--- User data script started: $(date) ---"
- 
+
 set -uo pipefail
- 
+
 # -----------------------------------------------------------------------------
-# 1. System update & package install.
+# 1. Install packages
 #    httpd-devel is required so mod_wsgi can compile against Apache (apxs).
-#    NOTE: ensure your root volume is at least 16GB — the full update + pip
-#    build can exceed the default 8GB volume.
+#    NOTE: ensure your root volume is at least 16GB before running —
+#    the full update + pip build can exceed the default 8GB volume.
 # -----------------------------------------------------------------------------
 echo "[1/8] Updating system packages..."
 dnf update -y
- 
+
 echo "[1/8] Installing packages..."
 dnf install -y \
     httpd \
@@ -30,53 +28,51 @@ dnf install -y \
     python3-devel \
     gcc \
     git
- 
-# Show free disk space so we can catch near-full situations early
+
 echo "Disk usage after package install:"
 df -h /
- 
+
 # -----------------------------------------------------------------------------
 # 2. Install mod_wsgi via pip and write the LoadModule config
 #    CRITICAL: must happen BEFORE Apache starts.
+#    python-home must NOT be set in webapp.conf — setting it overrides
+#    mod_wsgi's compiled-in PYTHONHOME and breaks codec initialisation.
 # -----------------------------------------------------------------------------
 echo "[2/8] Installing mod_wsgi via pip..."
 pip3 install mod_wsgi
- 
+
 echo "[2/8] Writing mod_wsgi LoadModule config..."
 mod_wsgi-express install-module > /etc/httpd/conf.modules.d/10-wsgi.conf
- 
-# Sanity check
+
 if ! grep -q "LoadModule" /etc/httpd/conf.modules.d/10-wsgi.conf; then
     echo "ERROR: mod_wsgi LoadModule config was not written. Dumping file:"
     cat /etc/httpd/conf.modules.d/10-wsgi.conf
     exit 1
 fi
 echo "mod_wsgi config OK: $(cat /etc/httpd/conf.modules.d/10-wsgi.conf)"
- 
+
 # -----------------------------------------------------------------------------
-# 3. Clone your GitHub repo
-#    EDIT: replace with your actual GitHub repo URL
+# 3. Clone the GitHub repo
 # -----------------------------------------------------------------------------
 echo "[3/8] Cloning application repo..."
-REPO_URL="https://github.com/s-mcinma/flask-webapp.git"   # <-- EDIT THIS
+REPO_URL="https://github.com/s-mcinma/flask-webapp.git"
 APP_DIR="/var/www/webapp"
- 
+
 git clone "$REPO_URL" "$APP_DIR"
- 
+
 if [ ! -d "$APP_DIR" ]; then
     echo "ERROR: git clone failed — check REPO_URL and that the repo is public."
     exit 1
 fi
- 
+
 # -----------------------------------------------------------------------------
 # 4. Install Python dependencies
 # -----------------------------------------------------------------------------
 echo "[4/8] Installing Python dependencies..."
 pip3 install -r "$APP_DIR/requirements.txt"
- 
+
 # -----------------------------------------------------------------------------
 # 5. Write the .env file
-#    EDIT: fill in your RDS endpoint, credentials, and DB name
 # -----------------------------------------------------------------------------
 echo "[5/8] Writing .env file..."
 cat > "$APP_DIR/.env" << 'ENVEOF'
@@ -86,37 +82,70 @@ DB_PASSWORD=password
 DB_NAME=flowershop
 FLASK_DEBUG=false
 ENVEOF
- 
+
 # Append generated secret key outside heredoc so shell expansion works
 echo "SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >> "$APP_DIR/.env"
- 
+
 chmod 640 "$APP_DIR/.env"
- 
+
 # -----------------------------------------------------------------------------
-# 6. Set ownership & permissions
+# 6. Write the Apache virtual host config
+#    python-home is intentionally omitted — setting it causes:
+#    "Initializing Python failed: failed to get the Python codec of the
+#    filesystem encoding"
 # -----------------------------------------------------------------------------
-echo "[6/8] Setting file permissions..."
+echo "[6/8] Writing Apache config..."
+cat > /etc/httpd/conf.d/webapp.conf << 'APACHEEOF'
+<VirtualHost *:80>
+    ServerName _default_
+
+    WSGIDaemonProcess webapp \
+        user=apache \
+        group=apache \
+        python-path=/var/www/webapp:/usr/lib/python3.9:/usr/lib64/python3.9:/usr/local/lib/python3.9/site-packages:/usr/local/lib64/python3.9/site-packages:/usr/lib/python3.9/site-packages:/usr/lib64/python3.9/site-packages \
+        processes=2 \
+        threads=5
+
+    WSGIProcessGroup webapp
+    WSGIScriptAlias / /var/www/webapp/webapp.wsgi
+    WSGIPassAuthorization On
+
+    Alias /static /var/www/webapp/static
+
+    <Directory /var/www/webapp/static>
+        Require all granted
+    </Directory>
+
+    <Directory /var/www/webapp>
+        <Files webapp.wsgi>
+            Require all granted
+        </Files>
+    </Directory>
+
+    ErrorLog  /var/log/httpd/webapp_error.log
+    CustomLog /var/log/httpd/webapp_access.log combined
+</VirtualHost>
+APACHEEOF
+
+# Remove default Apache welcome page so our app serves at /
+rm -f /etc/httpd/conf.d/welcome.conf
+
+# -----------------------------------------------------------------------------
+# 7. Set ownership & permissions
+# -----------------------------------------------------------------------------
+echo "[7/8] Setting file permissions..."
 chown -R apache:apache "$APP_DIR"
 find "$APP_DIR" -type d -exec chmod 755 {} \;
 find "$APP_DIR" -type f -exec chmod 644 {} \;
- 
-# -----------------------------------------------------------------------------
-# 7. Install the Apache virtual host config
-# -----------------------------------------------------------------------------
-echo "[7/8] Installing Apache config..."
-cp "$APP_DIR/webapp.conf" /etc/httpd/conf.d/webapp.conf
- 
-# Remove default Apache welcome page so our app serves at /
-rm -f /etc/httpd/conf.d/welcome.conf
- 
+chmod 640 "$APP_DIR/.env"
+
 # -----------------------------------------------------------------------------
 # 8. Enable and start Apache — mod_wsgi config is already in place
 # -----------------------------------------------------------------------------
 echo "[8/8] Enabling and starting Apache..."
 systemctl enable httpd
 systemctl start httpd
- 
-# Verify Apache started
+
 if systemctl is-active --quiet httpd; then
     echo "Apache started successfully."
 else
@@ -124,10 +153,11 @@ else
     journalctl -u httpd --no-pager -n 20
     exit 1
 fi
- 
+
 echo "Disk usage at finish:"
 df -h /
- 
+
 echo "--- User data script finished: $(date) ---"
 echo "Logs:             /var/log/user-data.log"
 echo "Apache error log: /var/log/httpd/webapp_error.log"
+echo "Main error log:   /var/log/httpd/error_log"
